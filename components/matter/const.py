@@ -14,6 +14,7 @@ CONF_HARDWARE_VERSION = "hardware_version"
 CONF_HARDWARE_VERSION_STRING = "hardware_version_string"
 CONF_PRODUCT_ID = "product_id"
 CONF_PRODUCT_NAME = "product_name"
+CONF_SERIAL_NUMBER = "serial_number"
 CONF_VENDOR_ID = "vendor_id"
 CONF_VENDOR_NAME = "vendor_name"
 

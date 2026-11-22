@@ -88,6 +88,9 @@ def _configure_basic_information(config):
                 value = HexInt(value)
             add_idf_sdkconfig_option(sdk_option, value)
 
+    if value := config.get(CONF_SERIAL_NUMBER):
+        cg.add_define("MATTER_SERIAL_NUMBER", value)
+
 
 def _require_vfs_select(config):
     """Register VFS select requirement during config validation."""
@@ -136,6 +139,10 @@ CONFIG_SCHEMA = cv.All(
             # Hardware version string
             cv.Optional(CONF_HARDWARE_VERSION_STRING): cv.All(
                 cv.string_strict, cv.Length(min=0, max=64)
+            ),
+            # Serial number (defaults to device MAC address at runtime)
+            cv.Optional(CONF_SERIAL_NUMBER): cv.All(
+                cv.string_strict, cv.Length(min=1, max=32)
             ),
             # Endpoints
             cv.Optional(CONF_ENDPOINTS, default={}): cv.Schema(

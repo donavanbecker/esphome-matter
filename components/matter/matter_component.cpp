@@ -6,6 +6,7 @@
 #include "esphome/components/openthread/openthread.h"
 #endif // USE_OPENTHREAD
 #include "esphome/core/application.h"
+#include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 #include "matter_component.h"
 
@@ -14,6 +15,7 @@
 #include <cstdio>
 #include <cstring>
 #include <esp_matter_client.h>
+#include <esp_matter_cluster.h>
 #include <esp_random.h>
 #include <nvs.h>
 #include <string>
@@ -318,13 +320,25 @@ void MatterComponent::setup() {
   this->publish_commissioning_code_sensors_();
 #endif
 
-  // Always update device-name so it stays in sync if the ESPHome device name
-  // changes. This is the DN TXT record in _matterc._udp — what controllers show
-  // in their UI.
+  char serial_number[33];
+#ifdef MATTER_SERIAL_NUMBER
+  snprintf(serial_number, sizeof(serial_number), "%s", MATTER_SERIAL_NUMBER);
+#else
+  uint8_t mac[6];
+  get_mac_address_raw(mac);
+  snprintf(serial_number, sizeof(serial_number), "%02X%02X%02X%02X%02X%02X",
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+#endif // MATTER_SERIAL_NUMBER
+
+  // Always update device-name and serial-num so they stay in sync with the
+  // ESPHome device name and MAC address. device-name is the DN TXT record in
+  // _matterc._udp — what controllers show in their UI; serial-num is read by
+  // CHIP's DeviceInstanceInfoProvider for BasicInformation::SerialNumber.
   {
     nvs_handle_t h;
     if (nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h) == ESP_OK) {
       nvs_set_str(h, "device-name", App.get_name().c_str());
+      nvs_set_str(h, "serial-num", serial_number);
       nvs_commit(h);
       nvs_close(h);
     }
@@ -337,6 +351,21 @@ void MatterComponent::setup() {
     ESP_LOGE(TAG, "Failed to create Matter node");
     this->mark_failed();
     return;
+  }
+
+  // Ensure BasicInformation::SerialNumber (optional attribute) is created on
+  // endpoint 0 and populated from the device MAC address.
+  if (esp_matter::endpoint_t *root_endpoint = esp_matter::endpoint::get(node, 0)) {
+    if (esp_matter::cluster_t *basic_info_cluster = esp_matter::cluster::get(
+            root_endpoint, chip::app::Clusters::BasicInformation::Id)) {
+      if (esp_matter::attribute::get(
+              basic_info_cluster,
+              chip::app::Clusters::BasicInformation::Attributes::SerialNumber::Id) ==
+          nullptr) {
+        esp_matter::cluster::basic_information::attribute::create_serial_number(
+            basic_info_cluster, serial_number, strlen(serial_number));
+      }
+    }
   }
 
   if (!this->create_endpoints_(node)) {
