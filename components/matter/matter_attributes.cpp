@@ -176,6 +176,22 @@ void set_attribute_value_on_matter_thread(uint16_t endpoint_id,
             : UINT16_MAX;
     break;
   }
+  case ESP_MATTER_VAL_TYPE_OCTET_STRING:
+  case ESP_MATTER_VAL_TYPE_LONG_OCTET_STRING: {
+    // Allow std::string to supply raw bytes (used for SSID / BSSID / LastNetworkID)
+    if (!std::holds_alternative<std::string>(value))
+      return;
+    const auto &string_value = std::get<std::string>(value);
+    attribute_value.val.a.b =
+        reinterpret_cast<uint8_t *>(const_cast<char *>(string_value.data()));
+    attribute_value.val.a.s = string_value.size();
+    attribute_value.val.a.t = string_value.size();
+    attribute_value.val.a.max =
+        attribute_value.get_base_type() == ESP_MATTER_VAL_TYPE_OCTET_STRING
+            ? UINT8_MAX
+            : UINT16_MAX;
+    break;
+  }
   default:
     ESP_LOGE(TAG,
              "Unsupported attribute type %u: endpoint=%u cluster=0x%08" PRIx32

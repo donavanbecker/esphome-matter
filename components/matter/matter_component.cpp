@@ -5,6 +5,11 @@
 #ifdef USE_OPENTHREAD
 #include "esphome/components/openthread/openthread.h"
 #endif // USE_OPENTHREAD
+#ifdef USE_WIFI
+#include <esp_wifi.h>
+#include "esphome/components/wifi/wifi_component.h"
+#include <platform/ESP32/NetworkCommissioningDriver.h>
+#endif // USE_WIFI
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
@@ -160,6 +165,14 @@ static void event_callback(const ChipDeviceEvent *event, intptr_t arg) {
   switch (event->Type) {
   case chip::DeviceLayer::DeviceEventType::kInterfaceIpAddressChanged:
     ESP_LOGD(TAG_EVENT, "Interface IP Address changed");
+#ifdef USE_WIFI
+    if (global_matter_component != nullptr) {
+      global_matter_component->defer_to_main_loop([]() {
+        if (global_matter_component != nullptr)
+          global_matter_component->update_wifi_network_info_();
+      });
+    }
+#endif
     break;
   case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
     ESP_LOGI(TAG_EVENT, "Commissioning complete");
@@ -223,6 +236,14 @@ static void event_callback(const ChipDeviceEvent *event, intptr_t arg) {
   }
   case chip::DeviceLayer::DeviceEventType::kWiFiConnectivityChange: // 0x8000
     ESP_LOGV(TAG_EVENT, "WiFiConnectivityChange");
+#ifdef USE_WIFI
+    if (global_matter_component != nullptr) {
+      global_matter_component->defer_to_main_loop([]() {
+        if (global_matter_component != nullptr)
+          global_matter_component->update_wifi_network_info_();
+      });
+    }
+#endif
     break;
   case chip::DeviceLayer::DeviceEventType::
       kThreadConnectivityChange: { // 0x8001
@@ -396,6 +417,14 @@ void MatterComponent::setup() {
     ESP_LOGD(TAG, "Matter started successfully");
   }
 
+#ifdef USE_WIFI
+  // Populate Wi-Fi network info for controllers (SSID in device details).
+  // Retry a few times — Wi-Fi / attribute store may not be ready immediately.
+  this->set_timeout(2000, [this]() { this->update_wifi_network_info_(); });
+  this->set_timeout(8000, [this]() { this->update_wifi_network_info_(); });
+  this->set_timeout(20000, [this]() { this->update_wifi_network_info_(); });
+#endif
+
 #ifdef USE_OPENTHREAD
   // ESPHome owns Thread, so CONFIG_ESP_MATTER_ENABLE_OPENTHREAD is disabled.
   // esp_matter::start() consequently skips advertising existing fabrics.
@@ -433,6 +462,35 @@ void MatterComponent::factory_reset() {
   }
   App.safe_reboot();
 }
+
+#ifdef USE_WIFI
+void MatterComponent::update_wifi_network_info_() {
+  // Use CHIP's own ESP Wi-Fi NetworkCommissioning driver to report status.
+  // OnNetworkStatusChange() reads the current AP via esp_wifi_sta_get_ap_info
+  // and calls the NetworkCommissioning Instance callback, which correctly
+  // populates LastNetworkID / LastNetworkingStatus (attributes that reject
+  // direct attribute::update writes).
+  wifi_ap_record_t ap_info{};
+  if (esp_wifi_sta_get_ap_info(&ap_info) != ESP_OK) {
+    ESP_LOGD(TAG, "update_wifi_network_info_: not connected yet");
+    return;
+  }
+
+  const char *ssid = reinterpret_cast<const char *>(ap_info.ssid);
+  ESP_LOGD(TAG,
+           "Updating Matter Wi-Fi info via ESPWiFiDriver: SSID='%s' RSSI=%d ch=%u",
+           ssid, ap_info.rssi, ap_info.primary);
+
+  // Must run on the CHIP stack so the status callback can safely update
+  // NetworkCommissioning cluster state and trigger attribute reports.
+  chip::DeviceLayer::PlatformMgr().ScheduleWork(
+      [](intptr_t) {
+        chip::DeviceLayer::NetworkCommissioning::ESPWiFiDriver::GetInstance()
+            .OnNetworkStatusChange();
+      },
+      0);
+}
+#endif // USE_WIFI
 
 void MatterComponent::generate_commissioning_codes_() {
   chip::SetupPayload payload;

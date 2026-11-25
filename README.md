@@ -27,7 +27,9 @@ supported.
 Connectivity depends on which ESPHome networking components are configured:
 
 - **Matter-over-Wi-Fi**: If `wifi` is configured, Matter announces itself over mDNS and can be commissioned
-  on the network.
+  on the network. The component also populates **Network Commissioning** (`LastNetworkID` = SSID) and
+  **Wi-Fi Network Diagnostics** (BSSID, RSSI, Channel, SecurityType) so controllers such as Apple Home
+  display the connected Wi-Fi network name in device details (like commercial Matter bulbs).
 - **Matter-over-Thread**: Requires the `openthread` component and ESPHome **2026.6.0** or newer.
 - **Matter-over-Ethernet**: Isn't supported yet and isn't actively being worked on. Feel free to implement it ;)
 - **BLE commissioning**: Currently broken, but this is something that I want to work on. The idea is that esphome-matter falls back to BLE commissioning (the default for most matter devices) when no `wifi`, `openthread`, or `ethernet` component is configured.

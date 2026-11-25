@@ -109,6 +109,12 @@ public:
     this->defer(std::move(f));
   }
 
+#ifdef USE_WIFI
+  /** Populate NetworkCommissioning LastNetworkID + Wi-Fi Network Diagnostics
+   *  so controllers (Apple Home etc.) show the connected SSID. */
+  void update_wifi_network_info_();
+#endif
+
 private:
   void generate_commissioning_codes_();
   // Defined in matter_endpoints.cpp
