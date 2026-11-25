@@ -33,6 +33,15 @@ public:
 
   void factory_reset();
 
+  /** Remove a single fabric by FabricIndex (1–254). Returns true on success. */
+  bool remove_fabric(uint8_t fabric_index);
+
+#ifdef USE_WIFI
+  /** Refresh NetworkCommissioning LastNetworkID from the current Wi‑Fi AP
+   *  so controllers can show the connected SSID. Safe to call any time. */
+  void update_wifi_network_info() { this->update_wifi_network_info_(); }
+#endif
+
 #ifdef USE_TEXT_SENSOR
   void set_manual_pairing_code_sensor(text_sensor::TextSensor *sensor) {
     this->manual_pairing_code_sensor_ = sensor;
@@ -148,6 +157,30 @@ class MatterFactoryResetAction : public Action<Ts...>,
 public:
   void play(Ts... x) override { this->parent_->factory_reset(); }
 };
+
+template <typename... Ts>
+class MatterRemoveFabricAction : public Action<Ts...>,
+                                 public Parented<MatterComponent> {
+public:
+  void set_fabric_index(uint8_t fabric_index) {
+    this->fabric_index_ = fabric_index;
+  }
+  void play(Ts... x) override {
+    this->parent_->remove_fabric(this->fabric_index_);
+  }
+
+protected:
+  uint8_t fabric_index_{0};
+};
+
+#ifdef USE_WIFI
+template <typename... Ts>
+class MatterUpdateWifiInfoAction : public Action<Ts...>,
+                                   public Parented<MatterComponent> {
+public:
+  void play(Ts... x) override { this->parent_->update_wifi_network_info(); }
+};
+#endif
 
 } // namespace esphome::matter
 

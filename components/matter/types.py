@@ -7,6 +7,12 @@ MatterComponent = matter_ns.class_("MatterComponent", cg.Component)
 MatterFactoryResetAction = matter_ns.class_(
     "MatterFactoryResetAction", automation.Action
 )
+MatterRemoveFabricAction = matter_ns.class_(
+    "MatterRemoveFabricAction", automation.Action
+)
+MatterUpdateWifiInfoAction = matter_ns.class_(
+    "MatterUpdateWifiInfoAction", automation.Action
+)
 MatterEndpointRef = matter_ns.class_("MatterEndpointRef")
 MatterAttributeTrigger = matter_ns.class_("MatterAttributeTrigger", automation.Trigger)
 MatterSetAttributeAction = matter_ns.class_(

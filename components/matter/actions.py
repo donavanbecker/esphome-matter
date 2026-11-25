@@ -28,9 +28,11 @@ from .types import (
     MatterComponent,
     MatterEndpointRef,
     MatterFactoryResetAction,
+    MatterRemoveFabricAction,
     MatterSendCommandAction,
     MatterSendEventAction,
     MatterSetAttributeAction,
+    MatterUpdateWifiInfoAction,
 )
 from .util import snake_case
 
@@ -44,6 +46,36 @@ _LOGGER = logging.getLogger(__name__)
     synchronous=True,
 )
 async def matter_factory_reset_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var
+
+
+@automation.register_action(
+    "matter.remove_fabric",
+    MatterRemoveFabricAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(MatterComponent),
+            cv.Required("fabric_index"): cv.int_range(min=1, max=254),
+        }
+    ),
+    synchronous=True,
+)
+async def matter_remove_fabric_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    cg.add(var.set_fabric_index(config["fabric_index"]))
+    return var
+
+
+@automation.register_action(
+    "matter.update_wifi_info",
+    MatterUpdateWifiInfoAction,
+    cv.Schema({cv.GenerateID(): cv.use_id(MatterComponent)}),
+    synchronous=True,
+)
+async def matter_update_wifi_info_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
     return var

@@ -463,6 +463,40 @@ void MatterComponent::factory_reset() {
   App.safe_reboot();
 }
 
+bool MatterComponent::remove_fabric(uint8_t fabric_index) {
+  if (fabric_index == 0) {
+    ESP_LOGW(TAG, "remove_fabric: fabric_index 0 is invalid");
+    return false;
+  }
+
+  auto &server = chip::Server::GetInstance();
+  auto &fabric_table = server.GetFabricTable();
+  auto *info = fabric_table.FindFabricWithIndex(fabric_index);
+  if (info == nullptr) {
+    ESP_LOGW(TAG, "remove_fabric: no fabric at index %u", fabric_index);
+    return false;
+  }
+
+  ESP_LOGI(TAG,
+           "Removing fabric index %u (VendorId=0x%04X NodeId=0x%08" PRIx32
+           "%08" PRIx32 ")",
+           fabric_index, (uint16_t)info->GetVendorId(),
+           (uint32_t)(info->GetNodeId() >> 32), (uint32_t)info->GetNodeId());
+
+  CHIP_ERROR err = fabric_table.Delete(fabric_index);
+  if (err != CHIP_NO_ERROR) {
+    ESP_LOGE(TAG, "remove_fabric failed: %" CHIP_ERROR_FORMAT, err.Format());
+    return false;
+  }
+
+  ESP_LOGI(TAG, "Fabric %u removed (%u remaining)", fabric_index,
+           fabric_table.FabricCount());
+#ifdef USE_TEXT_SENSOR
+  this->schedule_fabric_sensor_update();
+#endif
+  return true;
+}
+
 #ifdef USE_WIFI
 void MatterComponent::update_wifi_network_info_() {
   // Use CHIP's own ESP Wi-Fi NetworkCommissioning driver to report status.
