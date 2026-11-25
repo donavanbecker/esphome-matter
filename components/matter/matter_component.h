@@ -43,10 +43,29 @@ public:
    *  node after reboot / IP change). */
   void refresh_operational_advertising();
 
+  /** Open a basic commissioning window (for adding another fabric).
+   *  timeout_seconds: 0 = stack default (typically 900s). */
+  bool open_commissioning_window(uint16_t timeout_seconds = 0);
+
+  /** Close any open commissioning window. */
+  void close_commissioning_window();
+
+  /** True if a commissioning window is currently open. */
+  bool is_commissioning_window_open() const;
+
+  /** Publish commissioning-window open state to an optional binary sensor. */
+  void publish_commissioning_window_state();
+
 #ifdef USE_WIFI
   /** Refresh NetworkCommissioning LastNetworkID from the current Wi‑Fi AP
    *  so controllers can show the connected SSID. Safe to call any time. */
   void update_wifi_network_info() { this->update_wifi_network_info_(); }
+#endif
+
+#ifdef USE_BINARY_SENSOR
+  void set_commissioning_window_sensor(binary_sensor::BinarySensor *sensor) {
+    this->commissioning_window_sensor_ = sensor;
+  }
 #endif
 
 #ifdef USE_TEXT_SENSOR
@@ -141,6 +160,9 @@ private:
   uint32_t passcode_{0};
   std::string manual_pairing_code_;
   std::string qr_code_;
+#ifdef USE_BINARY_SENSOR
+  binary_sensor::BinarySensor *commissioning_window_sensor_{nullptr};
+#endif
 #ifdef USE_TEXT_SENSOR
   text_sensor::TextSensor *manual_pairing_code_sensor_{nullptr};
   text_sensor::TextSensor *qr_code_sensor_{nullptr};
@@ -213,6 +235,27 @@ public:
   void play(Ts... x) override {
     this->parent_->refresh_operational_advertising();
   }
+};
+
+template <typename... Ts>
+class MatterOpenCommissioningWindowAction : public Action<Ts...>,
+                                            public Parented<MatterComponent> {
+public:
+  void set_timeout_seconds(uint16_t timeout) { this->timeout_seconds_ = timeout; }
+  void play(Ts... x) override {
+    this->parent_->open_commissioning_window(this->timeout_seconds_);
+  }
+
+protected:
+  uint16_t timeout_seconds_{0};
+};
+
+template <typename... Ts>
+class MatterCloseCommissioningWindowAction
+    : public Action<Ts...>,
+      public Parented<MatterComponent> {
+public:
+  void play(Ts... x) override { this->parent_->close_commissioning_window(); }
 };
 
 } // namespace esphome::matter

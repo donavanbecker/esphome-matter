@@ -12,9 +12,17 @@
 #include <cstring>
 #include <inttypes.h>
 #include <json_to_tlv.h>
+#include <platform/CHIPDeviceLayer.h>
 #include <string>
+#include <tuple>
 
 static const char *const TAG = "matter.actions";
+
+namespace {
+// Depth of the current client invoke path (0 = original, 1 = one-shot retry).
+// Prevents unbounded retry loops when CASE is still down.
+thread_local int g_binding_send_depth = 0;
+} // namespace
 
 namespace esphome::matter {
 
@@ -51,6 +59,11 @@ static void client_invoke_cb(esp_matter::client::peer_device_t *peer_device,
   // indistinguishable lines. Captured rather than passed through send_request's
   // void *ctx because a 64-bit NodeId does not fit in a 32-bit pointer.
   const uint64_t node_id = static_cast<uint64_t>(peer_device->GetDeviceId());
+  // Copy path for the failure log (req_handle may be gone when the callback
+  // runs). A single deferred retry is scheduled via cluster_update so the
+  // binding manager resolves a fresh session instead of reusing a stale proxy.
+  const auto cmd_path = req_handle->command_path;
+  const std::string data_copy(cmd_data);
   ESP_LOGV(TAG, "Sending request to node=%" PRIu64, node_id);
   esp_matter::client::interaction::invoke::send_request(
       nullptr, peer_device, req_handle->command_path, cmd_data,
@@ -64,10 +77,61 @@ static void client_invoke_cb(esp_matter::client::peer_device_t *peer_device,
                  static_cast<unsigned long>(path.mCommandId),
                  static_cast<unsigned>(status.mStatus));
       },
-      [node_id](void *, CHIP_ERROR error) {
+      [node_id, cmd_path, data_copy](void *, CHIP_ERROR error) {
+        if (g_binding_send_depth > 0) {
+          ESP_LOGW(TAG,
+                   "Send command to node=%" PRIu64
+                   " endpoint=%u cluster=%lu command=%lu failed after retry: "
+                   "%" CHIP_ERROR_FORMAT,
+                   node_id, static_cast<unsigned>(cmd_path.mEndpointId),
+                   static_cast<unsigned long>(cmd_path.mClusterId),
+                   static_cast<unsigned long>(cmd_path.mCommandId),
+                   error.Format());
+          return;
+        }
         ESP_LOGW(TAG,
-                 "Send command to node=%" PRIu64 " failed: %" CHIP_ERROR_FORMAT,
-                 node_id, error.Format());
+                 "Send command to node=%" PRIu64
+                 " endpoint=%u cluster=%lu command=%lu failed: %" CHIP_ERROR_FORMAT
+                 " — will retry once in 2s",
+                 node_id, static_cast<unsigned>(cmd_path.mEndpointId),
+                 static_cast<unsigned long>(cmd_path.mClusterId),
+                 static_cast<unsigned long>(cmd_path.mCommandId),
+                 error.Format());
+        // One deferred retry via cluster_update (re-resolves session).
+        struct RetryState {
+          uint16_t endpoint_id;
+          chip::ClusterId cluster;
+          chip::CommandId command;
+          std::string data;
+        };
+        auto *state = new RetryState{cmd_path.mEndpointId, cmd_path.mClusterId,
+                                     cmd_path.mCommandId, data_copy};
+        chip::DeviceLayer::SystemLayer().StartTimer(
+            chip::System::Clock::Seconds16(2),
+            [](chip::System::Layer *, void *ctx) {
+              auto *s = static_cast<RetryState *>(ctx);
+              ESP_LOGD(TAG,
+                       "Retrying bound command endpoint=%u cluster=%lu "
+                       "command=%lu",
+                       s->endpoint_id,
+                       static_cast<unsigned long>(s->cluster),
+                       static_cast<unsigned long>(s->command));
+              g_binding_send_depth = 1;
+              esp_matter::client::request_handle_t req;
+              req.type = esp_matter::client::INVOKE_CMD;
+              req.command_path.mClusterId = s->cluster;
+              req.command_path.mCommandId = s->command;
+              req.request_data = const_cast<char *>(s->data.c_str());
+              esp_err_t err =
+                  esp_matter::client::cluster_update(s->endpoint_id, &req);
+              g_binding_send_depth = 0;
+              if (err != ESP_OK) {
+                ESP_LOGW(TAG, "Bound command retry cluster_update failed: %s",
+                         esp_err_to_name(err));
+              }
+              delete s;
+            },
+            state);
       },
       chip::NullOptional);
 }
@@ -123,8 +187,15 @@ void send_client_command(uint16_t endpoint_id, chip::ClusterId cluster,
   }
 
   if (node_ids.empty()) {
-    ESP_LOGW(TAG, "No bound nodes for endpoint=%u cluster=%lu", endpoint_id,
-             static_cast<uint32_t>(cluster));
+    size_t total = 0;
+    for (const auto &e : binding_table)
+      (void)e, ++total;
+    ESP_LOGW(TAG,
+             "No bound nodes for endpoint=%u cluster=%lu "
+             "(binding table has %u entries — check fabric/ACL and Binding "
+             "cluster)",
+             endpoint_id, static_cast<uint32_t>(cluster),
+             static_cast<unsigned>(total));
     return;
   }
   ESP_LOGD(

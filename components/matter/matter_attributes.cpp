@@ -204,10 +204,20 @@ void set_attribute_value_on_matter_thread(uint16_t endpoint_id,
   esp_err_t err = esp_matter::attribute::update(endpoint_id, cluster_id,
                                                 attribute_id, &attribute_value);
   if (err != ESP_OK) {
+    // ESP_ERR_NOT_SUPPORTED (262) usually means a code-driven / managed-internally
+    // attribute that must be updated via its cluster instance, not attribute::update.
+    const char *hint = "";
+    if (err == ESP_ERR_NOT_SUPPORTED) {
+      hint = " (managed-internally or read-only — use cluster API, not attribute::update)";
+    } else if (err == ESP_ERR_INVALID_ARG) {
+      hint = " (type/length mismatch or null cluster)";
+    } else if (err == ESP_ERR_NOT_FOUND) {
+      hint = " (cluster or attribute not present on this endpoint)";
+    }
     ESP_LOGE(TAG,
              "Failed to set attribute: endpoint=%u cluster=0x%08" PRIx32
-             " attribute=0x%08" PRIx32 ": %s",
-             endpoint_id, cluster_id, attribute_id, esp_err_to_name(err));
+             " attribute=0x%08" PRIx32 ": %s%s",
+             endpoint_id, cluster_id, attribute_id, esp_err_to_name(err), hint);
   }
 }
 

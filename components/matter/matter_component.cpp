@@ -188,9 +188,13 @@ static void event_callback(const ChipDeviceEvent *event, intptr_t arg) {
     break;
   case chip::DeviceLayer::DeviceEventType::kCommissioningWindowOpened:
     ESP_LOGI(TAG_EVENT, "Commissioning window opened");
+    if (global_matter_component != nullptr)
+      global_matter_component->publish_commissioning_window_state();
     break;
   case chip::DeviceLayer::DeviceEventType::kCommissioningWindowClosed:
     ESP_LOGI(TAG_EVENT, "Commissioning window closed");
+    if (global_matter_component != nullptr)
+      global_matter_component->publish_commissioning_window_state();
     break;
   case chip::DeviceLayer::DeviceEventType::kFabricRemoved:
     ESP_LOGI(TAG_EVENT, "Fabric removed");
@@ -474,6 +478,7 @@ void MatterComponent::setup() {
 #ifdef USE_TEXT_SENSOR
   this->publish_fabric_sensors_();
 #endif
+  this->publish_commissioning_window_state();
 }
 
 void MatterComponent::factory_reset() {
@@ -566,6 +571,52 @@ void MatterComponent::refresh_operational_advertising() {
     ESP_LOGW(TAG, "Failed to schedule DNS-SD refresh: %" CHIP_ERROR_FORMAT,
              err.Format());
   }
+}
+
+bool MatterComponent::open_commissioning_window(uint16_t timeout_seconds) {
+  auto &mgr = chip::Server::GetInstance().GetCommissioningWindowManager();
+  CHIP_ERROR err;
+  if (timeout_seconds == 0) {
+    err = mgr.OpenBasicCommissioningWindow();
+  } else {
+    err = mgr.OpenBasicCommissioningWindow(
+        chip::System::Clock::Seconds32(timeout_seconds));
+  }
+  if (err != CHIP_NO_ERROR) {
+    ESP_LOGE(TAG, "OpenBasicCommissioningWindow failed: %" CHIP_ERROR_FORMAT,
+             err.Format());
+    return false;
+  }
+  ESP_LOGI(TAG, "Commissioning window opened (timeout=%u s, 0=default)",
+           timeout_seconds);
+  this->publish_commissioning_window_state();
+  return true;
+}
+
+void MatterComponent::close_commissioning_window() {
+  auto &mgr = chip::Server::GetInstance().GetCommissioningWindowManager();
+  if (!mgr.IsCommissioningWindowOpen()) {
+    ESP_LOGD(TAG, "close_commissioning_window: window already closed");
+    return;
+  }
+  mgr.CloseCommissioningWindow();
+  ESP_LOGI(TAG, "Commissioning window closed");
+  this->publish_commissioning_window_state();
+}
+
+bool MatterComponent::is_commissioning_window_open() const {
+  return chip::Server::GetInstance()
+      .GetCommissioningWindowManager()
+      .IsCommissioningWindowOpen();
+}
+
+void MatterComponent::publish_commissioning_window_state() {
+#ifdef USE_BINARY_SENSOR
+  if (this->commissioning_window_sensor_ != nullptr) {
+    this->commissioning_window_sensor_->publish_state(
+        this->is_commissioning_window_open());
+  }
+#endif
 }
 
 #ifdef USE_WIFI

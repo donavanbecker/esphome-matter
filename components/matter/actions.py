@@ -25,9 +25,11 @@ from .data_model.clusters import (
 from .data_model.commands import Command
 from .data_model.events import Event
 from .types import (
+    MatterCloseCommissioningWindowAction,
     MatterComponent,
     MatterEndpointRef,
     MatterFactoryResetAction,
+    MatterOpenCommissioningWindowAction,
     MatterRefreshAdvertisingAction,
     MatterRemoveFabricAction,
     MatterSendCommandAction,
@@ -110,6 +112,36 @@ async def matter_update_fabric_label_to_code(config, action_id, template_arg, ar
     synchronous=True,
 )
 async def matter_refresh_advertising_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var
+
+
+@automation.register_action(
+    "matter.open_commissioning_window",
+    MatterOpenCommissioningWindowAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(MatterComponent),
+            cv.Optional("timeout", default=0): cv.int_range(min=0, max=900),
+        }
+    ),
+    synchronous=True,
+)
+async def matter_open_commissioning_window_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    cg.add(var.set_timeout_seconds(config["timeout"]))
+    return var
+
+
+@automation.register_action(
+    "matter.close_commissioning_window",
+    MatterCloseCommissioningWindowAction,
+    cv.Schema({cv.GenerateID(): cv.use_id(MatterComponent)}),
+    synchronous=True,
+)
+async def matter_close_commissioning_window_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
     return var
