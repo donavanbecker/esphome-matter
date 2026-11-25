@@ -28,10 +28,12 @@ from .types import (
     MatterComponent,
     MatterEndpointRef,
     MatterFactoryResetAction,
+    MatterRefreshAdvertisingAction,
     MatterRemoveFabricAction,
     MatterSendCommandAction,
     MatterSendEventAction,
     MatterSetAttributeAction,
+    MatterUpdateFabricLabelAction,
     MatterUpdateWifiInfoAction,
 )
 from .util import snake_case
@@ -76,6 +78,38 @@ async def matter_remove_fabric_to_code(config, action_id, template_arg, args):
     synchronous=True,
 )
 async def matter_update_wifi_info_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    return var
+
+
+@automation.register_action(
+    "matter.update_fabric_label",
+    MatterUpdateFabricLabelAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(MatterComponent),
+            cv.Required("fabric_index"): cv.int_range(min=1, max=254),
+            cv.Required("label"): cv.All(cv.string_strict, cv.Length(min=0, max=32)),
+        }
+    ),
+    synchronous=True,
+)
+async def matter_update_fabric_label_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    cg.add(var.set_fabric_index(config["fabric_index"]))
+    cg.add(var.set_label(config["label"]))
+    return var
+
+
+@automation.register_action(
+    "matter.refresh_advertising",
+    MatterRefreshAdvertisingAction,
+    cv.Schema({cv.GenerateID(): cv.use_id(MatterComponent)}),
+    synchronous=True,
+)
+async def matter_refresh_advertising_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
     return var

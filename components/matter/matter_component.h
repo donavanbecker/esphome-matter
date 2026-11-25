@@ -36,6 +36,13 @@ public:
   /** Remove a single fabric by FabricIndex (1–254). Returns true on success. */
   bool remove_fabric(uint8_t fabric_index);
 
+  /** Set the human-readable label for a fabric (max 32 chars). */
+  bool update_fabric_label(uint8_t fabric_index, const std::string &label);
+
+  /** Re-advertise operational DNS-SD services (helps controllers re-find the
+   *  node after reboot / IP change). */
+  void refresh_operational_advertising();
+
 #ifdef USE_WIFI
   /** Refresh NetworkCommissioning LastNetworkID from the current Wi‑Fi AP
    *  so controllers can show the connected SSID. Safe to call any time. */
@@ -181,6 +188,32 @@ public:
   void play(Ts... x) override { this->parent_->update_wifi_network_info(); }
 };
 #endif
+
+template <typename... Ts>
+class MatterUpdateFabricLabelAction : public Action<Ts...>,
+                                      public Parented<MatterComponent> {
+public:
+  void set_fabric_index(uint8_t fabric_index) {
+    this->fabric_index_ = fabric_index;
+  }
+  void set_label(const std::string &label) { this->label_ = label; }
+  void play(Ts... x) override {
+    this->parent_->update_fabric_label(this->fabric_index_, this->label_);
+  }
+
+protected:
+  uint8_t fabric_index_{0};
+  std::string label_;
+};
+
+template <typename... Ts>
+class MatterRefreshAdvertisingAction : public Action<Ts...>,
+                                       public Parented<MatterComponent> {
+public:
+  void play(Ts... x) override {
+    this->parent_->refresh_operational_advertising();
+  }
+};
 
 } // namespace esphome::matter
 

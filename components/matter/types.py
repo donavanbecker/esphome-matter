@@ -13,6 +13,12 @@ MatterRemoveFabricAction = matter_ns.class_(
 MatterUpdateWifiInfoAction = matter_ns.class_(
     "MatterUpdateWifiInfoAction", automation.Action
 )
+MatterUpdateFabricLabelAction = matter_ns.class_(
+    "MatterUpdateFabricLabelAction", automation.Action
+)
+MatterRefreshAdvertisingAction = matter_ns.class_(
+    "MatterRefreshAdvertisingAction", automation.Action
+)
 MatterEndpointRef = matter_ns.class_("MatterEndpointRef")
 MatterAttributeTrigger = matter_ns.class_("MatterAttributeTrigger", automation.Trigger)
 MatterSetAttributeAction = matter_ns.class_(

@@ -26,9 +26,7 @@
 #include <string>
 
 #include <app/server/Server.h>
-#ifdef USE_OPENTHREAD
 #include <app/server/Dnssd.h>
-#endif // USE_OPENTHREAD
 #include <crypto/CHIPCryptoPAL.h>
 #if CHIP_DEVICE_CONFIG_ENABLE_THREAD
 #include <platform/ESP32/ThreadStackManagerImpl.h>
@@ -165,14 +163,16 @@ static void event_callback(const ChipDeviceEvent *event, intptr_t arg) {
   switch (event->Type) {
   case chip::DeviceLayer::DeviceEventType::kInterfaceIpAddressChanged:
     ESP_LOGD(TAG_EVENT, "Interface IP Address changed");
-#ifdef USE_WIFI
     if (global_matter_component != nullptr) {
       global_matter_component->defer_to_main_loop([]() {
-        if (global_matter_component != nullptr)
-          global_matter_component->update_wifi_network_info_();
+        if (global_matter_component == nullptr)
+          return;
+        global_matter_component->refresh_operational_advertising();
+#ifdef USE_WIFI
+        global_matter_component->update_wifi_network_info_();
+#endif
       });
     }
-#endif
     break;
   case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
     ESP_LOGI(TAG_EVENT, "Commissioning complete");
@@ -194,10 +194,20 @@ static void event_callback(const ChipDeviceEvent *event, intptr_t arg) {
     break;
   case chip::DeviceLayer::DeviceEventType::kFabricRemoved:
     ESP_LOGI(TAG_EVENT, "Fabric removed");
+    if (global_matter_component != nullptr) {
 #ifdef USE_TEXT_SENSOR
-    global_matter_component->schedule_fabric_sensor_update();
+      global_matter_component->schedule_fabric_sensor_update();
 #endif
-    // TODO: reopen commissioning window?
+      // If no fabrics remain, open a basic commissioning window so the device
+      // can be re-paired without a full factory reset.
+      if (chip::Server::GetInstance().GetFabricTable().FabricCount() == 0) {
+        ESP_LOGI(TAG_EVENT,
+                 "Last fabric removed — opening commissioning window");
+        chip::Server::GetInstance()
+            .GetCommissioningWindowManager()
+            .OpenBasicCommissioningWindow();
+      }
+    }
     break;
   case chip::DeviceLayer::DeviceEventType::kFabricWillBeRemoved:
     ESP_LOGI(TAG_EVENT, "Fabric will be removed");
@@ -205,23 +215,39 @@ static void event_callback(const ChipDeviceEvent *event, intptr_t arg) {
   case chip::DeviceLayer::DeviceEventType::kFabricUpdated:
     ESP_LOGI(TAG_EVENT, "Fabric is updated");
 #ifdef USE_TEXT_SENSOR
-    global_matter_component->schedule_fabric_sensor_update();
+    if (global_matter_component != nullptr)
+      global_matter_component->schedule_fabric_sensor_update();
 #endif
     break;
   case chip::DeviceLayer::DeviceEventType::kFabricCommitted:
     ESP_LOGI(TAG_EVENT, "Fabric is committed");
 #ifdef USE_TEXT_SENSOR
-    global_matter_component->schedule_fabric_sensor_update();
+    if (global_matter_component != nullptr)
+      global_matter_component->schedule_fabric_sensor_update();
 #endif
     break;
   case chip::DeviceLayer::DeviceEventType::kDnssdRestartNeeded:
     ESP_LOGD(TAG_EVENT, "DNS-SD restart needed");
+    if (global_matter_component != nullptr)
+      global_matter_component->refresh_operational_advertising();
     break;
   case chip::DeviceLayer::DeviceEventType::kBindingsChangedViaCluster:
     ESP_LOGI(TAG_EVENT, "Bindings updated");
     break;
   case chip::DeviceLayer::DeviceEventType::kServerReady:
     ESP_LOGI(TAG_EVENT, "Server ready!");
+    if (global_matter_component != nullptr) {
+      // Re-advertise and push Wi-Fi info once the server is fully up. This
+      // shortens the post-reboot window where controllers fail discovery.
+      global_matter_component->defer_to_main_loop([]() {
+        if (global_matter_component == nullptr)
+          return;
+        global_matter_component->refresh_operational_advertising();
+#ifdef USE_WIFI
+        global_matter_component->update_wifi_network_info_();
+#endif
+      });
+    }
     break;
   case chip::DeviceLayer::DeviceEventType::kSecureSessionEstablished: {
     const auto &s = event->SecureSessionEstablished;
@@ -495,6 +521,51 @@ bool MatterComponent::remove_fabric(uint8_t fabric_index) {
   this->schedule_fabric_sensor_update();
 #endif
   return true;
+}
+
+bool MatterComponent::update_fabric_label(uint8_t fabric_index,
+                                          const std::string &label) {
+  if (fabric_index == 0) {
+    ESP_LOGW(TAG, "update_fabric_label: fabric_index 0 is invalid");
+    return false;
+  }
+  if (label.size() > chip::kFabricLabelMaxLengthInBytes) {
+    ESP_LOGW(TAG, "update_fabric_label: label too long (max %u)",
+             (unsigned)chip::kFabricLabelMaxLengthInBytes);
+    return false;
+  }
+
+  auto &fabric_table = chip::Server::GetInstance().GetFabricTable();
+  if (fabric_table.FindFabricWithIndex(fabric_index) == nullptr) {
+    ESP_LOGW(TAG, "update_fabric_label: no fabric at index %u", fabric_index);
+    return false;
+  }
+
+  CHIP_ERROR err = fabric_table.SetFabricLabel(
+      fabric_index, chip::CharSpan(label.data(), label.size()));
+  if (err != CHIP_NO_ERROR) {
+    ESP_LOGE(TAG, "SetFabricLabel failed: %" CHIP_ERROR_FORMAT, err.Format());
+    return false;
+  }
+
+  ESP_LOGI(TAG, "Fabric %u label set to '%s'", fabric_index, label.c_str());
+#ifdef USE_TEXT_SENSOR
+  this->schedule_fabric_sensor_update();
+#endif
+  return true;
+}
+
+void MatterComponent::refresh_operational_advertising() {
+  CHIP_ERROR err = chip::DeviceLayer::PlatformMgr().ScheduleWork(
+      [](intptr_t) {
+        chip::app::DnssdServer::Instance().StartServer();
+        ESP_LOGD("matter", "Operational DNS-SD advertising refreshed");
+      },
+      0);
+  if (err != CHIP_NO_ERROR) {
+    ESP_LOGW(TAG, "Failed to schedule DNS-SD refresh: %" CHIP_ERROR_FORMAT,
+             err.Format());
+  }
 }
 
 #ifdef USE_WIFI
